@@ -38,14 +38,11 @@ const DEFAULT_SRC = "aviatormax";
 const SOURCES = process.env.SOURCES
   ? JSON.parse(process.env.SOURCES)
   : {
-      aviatormax: {
-        db: "https://aviatormax-ac28e-default-rtdb.firebaseio.com",
-        path: "history",
-      },
-      goty: {
-        db: "https://goathvelas-default-rtdb.firebaseio.com",
-        path: "history",
-      },
+      // nome = rótulo que aparece no título · g = número do gráfico · stall:false = não avisa "capturador parado"
+      aviatormax: { db: "https://aviatormax-ac28e-default-rtdb.firebaseio.com", path: "history", nome: "Automática", g: 1 },
+      aviatormax2: { db: "https://aviatormax-ac28e-default-rtdb.firebaseio.com", path: "aviator2", nome: "Automática", g: 2, stall: false },
+      goty: { db: "https://goathvelas-default-rtdb.firebaseio.com", path: "history", nome: "Goathbet", g: 1 },
+      goty2: { db: "https://goathvelas-default-rtdb.firebaseio.com", path: "aviator2", nome: "Goathbet", g: 2, stall: false },
     };
 const SUBS_DB = (process.env.SUBS_DB_URL || SOURCES[DEFAULT_SRC]?.db || Object.values(SOURCES)[0].db).replace(/\/$/, "");
 
@@ -108,12 +105,15 @@ async function deleteSub(src, hash) {
 
 // ---------- ENVIO ----------
 // src = nome da fonte · null = todas
+const prefixo = (s) => { const c = SOURCES[s] || {}; return c.nome ? `[${c.nome} · G${c.g || 1}] ` : ""; };
+// gráfico 2 usa tag própria (am-g2-momento…) para não substituir a notificação do gráfico 1
+const tagDe = (s, tag) => { const g = (SOURCES[s] || {}).g || 1; return g > 1 ? tag.replace(/^am-/, `am-g${g}-`) : tag; };
 async function sendPushToAll(src, title, body, tag) {
   const targets = src ? [src] : Object.keys(SOURCES);
-  const payload = JSON.stringify({ title: title || "AviatorMax", body: body || "", tag: tag || "am-radar" });
   let sent = 0;
   const jobs = [];
   for (const s of targets) {
+    const payload = JSON.stringify({ title: prefixo(s) + (title || "AviatorMax"), body: body || "", tag: tagDe(s, tag || "am-radar") });
     for (const [hash, sub] of [...(subs[s] || new Map())]) {
       jobs.push(
         (async () => {
@@ -321,7 +321,7 @@ function analyze(src, st) {
     st.wasTome = false;
     notify(
       src, st,
-      "Possível PAGUE iniciando — inicie operação agora",
+      "🟢 Possível PAGUE iniciando — inicie operação agora",
       "Previsão de duração: " + prevTxt + " (média dos 2 últimos pagues). Pos15:" + pt.pos15 +
         " Az15:" + (15 - pt.pos15) + " (diff " + (pt.pos15 - (15 - pt.pos15)) + "). Pos7:" + pt.pos7 + " Az7:" + pt.az7,
       "momento", CD_MOMENTO, true
@@ -338,7 +338,7 @@ function analyze(src, st) {
     st.pagueStartTs = 0;
     notify(
       src, st,
-      "Gráfico ruim — evite operar",
+      "🔴 Gráfico ruim — evite operar",
       "Último pague durou " + lastTxt + ". TOME · Pos7:" + pt.pos7 + " Az7:" + pt.az7 + " · seq azul " + pt.azSeq,
       "momento", CD_MOMENTO, true
     );
@@ -347,7 +347,7 @@ function analyze(src, st) {
     const late = depth >= 18;
     notify(
       src, st,
-      late ? "PAGUE avançado — cuidado com o fim" : "PAGUE em andamento",
+      late ? "🟡 PAGUE avançado — cuidado com o fim" : "🟢 PAGUE em andamento",
       late
         ? "~" + depth + " min no ciclo · previsão era " + prevTxt + ". Considere travar."
         : "~" + depth + " min · previsão " + prevTxt + " · Pos7:" + pt.pos7,
@@ -356,7 +356,7 @@ function analyze(src, st) {
   } else if (pt.tome && st.phase === "tome") {
     notify(
       src, st,
-      "Gráfico ruim — evite operar",
+      "🔴 Gráfico ruim — evite operar",
       "Último pague durou " + lastTxt + ". Ainda em TOME · Pos7:" + pt.pos7 + " Az7:" + pt.az7,
       "momento", CD_MOMENTO, false
     );
@@ -365,7 +365,7 @@ function analyze(src, st) {
   }
 
   if (roses >= 7) {
-    notify(src, st, "Possível chance de 50x", roses + " rosas <50x desde a última mega.", "50x", CD_50X, false);
+    notify(src, st, "💎 Possível chance de 50x", roses + " rosas <50x desde a última mega.", "50x", CD_50X, false);
   }
 
   // Melhor modo: 10 em 10 min
@@ -375,7 +375,7 @@ function analyze(src, st) {
     const modes = scoreModes(vals);
     if (modes.length) {
       const top = modes.slice(0, 3).map((m) => m.nome + "(" + m.score + ")").join(" · ");
-      notify(src, st, "Melhor modo agora: " + modes[0].nome, "Ranking 20 min (a cada 10 min): " + top, "modo", CD_MODO, true);
+      notify(src, st, "🎯 Melhor modo agora: " + modes[0].nome, "Ranking 20 min (a cada 10 min): " + top, "modo", CD_MODO, true);
     }
   }
 }
@@ -427,7 +427,7 @@ async function pollSource(src) {
         notify(src, st, "✅ Velas voltaram", `O gráfico ${src} voltou a receber velas.`, "stall", 0, true);
       }
       if (added) analyze(src, st);
-    } else if (STALL_MIN > 0 && !st.stalled && Date.now() - st.lastCandleAt > STALL_MIN * 60000) {
+    } else if (STALL_MIN > 0 && SOURCES[src].stall !== false && !st.stalled && Date.now() - st.lastCandleAt > STALL_MIN * 60000) {
       st.stalled = true;
       const min = Math.round((Date.now() - st.lastCandleAt) / 60000);
       notify(src, st, "⚠️ Capturador parado", `Sem velas novas em ${src} há ${min} min. Verifique o capturador.`, "stall", 0, true);
@@ -514,49 +514,4 @@ const server = http.createServer(async (req, res) => {
           minutos_desde_ultima_vela: Math.round((Date.now() - st.lastCandleAt) / 60000),
           capturador_parado: st.stalled,
           pronto: st.ready,
-        };
-      }
-      return json(res, {
-        status: "AviatorMax Push Server ativo e operacional!",
-        uptime_min: Math.round(process.uptime() / 60),
-        has_vapid_private: !!VAPID_PRIVATE,
-        dry_run: DRY_RUN,
-        fontes,
-      });
-    }
-
-    if (url.pathname === "/test-push") {
-      const srcParam = url.searchParams.get("src");
-      const src = srcParam ? getSrc(url) : null;
-      if (srcParam && !src) return json(res, { error: "src desconhecida" }, 400);
-      const sent = await sendPushToAll(src, "🔔 Teste AviatorMax", "Se você recebeu isso com o app fechado, o push 24h está OK.", "am-teste");
-      return json(res, { ok: true, sent });
-    }
-
-    if (url.pathname === "/send") {
-      if (!ADMIN_TOKEN || url.searchParams.get("token") !== ADMIN_TOKEN) return json(res, { error: "não autorizado" }, 401);
-      const srcParam = url.searchParams.get("src");
-      const src = srcParam ? getSrc(url) : null; // sem src = todos
-      if (srcParam && !src) return json(res, { error: "src desconhecida" }, 400);
-      const sent = await sendPushToAll(src, url.searchParams.get("title") || "AviatorMax", url.searchParams.get("body") || "", "am-manual");
-      return json(res, { ok: true, sent });
-    }
-
-    return json(res, { status: "AviatorMax Push Server ativo e operacional!" });
-  } catch (e) {
-    return json(res, { error: String(e.message || e) }, 500);
-  }
-});
-
-process.on("unhandledRejection", (e) => log("unhandledRejection:", e));
-process.on("uncaughtException", (e) => log("uncaughtException:", e));
-
-server.listen(PORT, async () => {
-  log(`AviatorMax Push Server na porta ${PORT} · fontes: ${Object.keys(SOURCES).join(", ")}${DRY_RUN ? " · DRY_RUN" : ""}`);
-  await loadSubs();
-  startPolling();
-  // mantém o Render acordado (reforço — o UptimeRobot é o principal)
-  if (process.env.RENDER_EXTERNAL_URL) {
-    setInterval(() => fetch(process.env.RENDER_EXTERNAL_URL + "/health").catch(() => {}), 9 * 60 * 1000);
-  }
-});
+     
